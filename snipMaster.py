@@ -12,19 +12,19 @@ class SNIPinst(master.StochIPinst):
 		self.snipNo = snipNo
 		self.Nscen = None
 		self.Nfv = None
-		self.cVec = None
-		self.pVec = None
-		self.A = []
-		self.AD = []
-		self.ALL = []
-		self.N = []
-		self.SCEN = []
-		self.PSI = []
-		self.ind = {}
-		self.n = None
-		self.na = None
-		self.a = None
-		self.ad = None
+		self.cVec = None 							# dual multiplier
+		self.pVec = None                            # scenario probability
+		self.A = []                                 # All non-interdictable arcs with two probabilities
+		self.AD = []         						# All interdictable arcs with two probabilities
+		self.ALL = []								# All arcs with two probabilities
+		self.N = []                                 # All nodes (unique, sorted)
+		self.SCEN = []                              # scenarios [s,t, probability of this scenario]
+		self.PSI = []            
+		self.ind = {}                               # A dict associated with N
+		self.n = None 								# # of nodes
+		self.na = None 								# # of arcs
+		self.a = None								# # of interdictable arcs
+		self.ad = None								# # of non-interdictable arcs
 		self.PrimalMaster = Model('Master')
 		self.theta = {}
 		self.x = {}
@@ -39,7 +39,7 @@ class SNIPinst(master.StochIPinst):
 		self.scensub = {}
 		self.scenrc = None
 
-	def Initialize(self):
+	def Initialize(self): 
 		objCoef = {}
 		for i in range(self.Nfv):
 			objCoef[i] = self.cVec[i]
