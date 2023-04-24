@@ -203,7 +203,6 @@ class SNIPinst(master.StochIPinst):
 			self.cutlist[s] = []
 			self.coeflist[s] = []
 			self.thetaCutList[s] = []        			# we have a cut list for each scenario
-
 		self.Initialize()
 
 

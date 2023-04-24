@@ -196,8 +196,8 @@ class StochIPinst:
             for s in range(self.Nscen):
                 NscenSolved = NscenSolved + 1
                 tScen = time.time()
-                ObjV, const, subg = self.SolveBendersSub(scen_id=s, x_input=x_value)                            # subg is the dual multiplier (pi / lambda)
-                nsubg = {i: -subg[i] for i in subg}
+                ObjV, const, subg = self.SolveBendersSub(scen_id=s, x_input=x_value)                            # subg is the negative dual multiplier (pi / lambda)
+                nsubg = {i: -subg[i] for i in subg}                                                             # obtain the dual multipliers
                 tSub = time.time()
                 tlimitValue = max(timeLimit - (time.time() - t0), 0)
                 ObjV, xHat, yObjV, SubOpt, BestBound = self.SolveScenSub(scen_id=s, objCoef=nsubg, regCoefy=1,  # we input the dual multiplier
@@ -208,7 +208,7 @@ class StochIPinst:
                     self.PrimalMaster.addConstr(
                         self.theta[s] >= quicksum(subg[i] * self.x[i] for i in range(self.Nfv)) + ObjV)
                     self.Ncuts += 1
-                    ContinueCondition = True
+                    ContinueCondition = True                                                                    # if there is a scenario added a cut, we will re-run the master problem and examine whether we need a new cut
                 tScen = time.time() - tScen
                 if tScen > MaxTime:
                     MaxTime = tScen
@@ -232,7 +232,7 @@ class StochIPinst:
             f.close
 
     # Exact separation of Lagrangian cuts
-    def IterativeLag(self, BDmethod='level', tol=1e-4, gapTol=5e-1, pi0Coef=1e-2, timeLimit=60 * 60):
+    def IterativeLag(self, BDmethod='level', tol=1e-4, gapTol=5e-1, pi0Coef=1e-2, timeLimit=60 * 60):       # pi0Coef is the alpha in (19)
         # Solved by level method (vanilla cutting plane is much slower for high dimensional problems)
         wrtStr = 'BendersMethod=' + str(BDmethod) + '\ttol=' + str(tol) + '\tgapTol=' + str(
             gapTol) + '\tpi0Coef=' + str(pi0Coef) + '\ttimeLimit=' + str(timeLimit) + '\n'
@@ -271,21 +271,19 @@ class StochIPinst:
 
             coef = [xHat[i] for i in range(self.Nfv)]
             coef.append(yObjV)
-            CutHistory[s].append(coef)
+            CutHistory[s].append(coef)                                          # this is the cut for level method to approximate the dual problem
             for soln in SubOpt:
                 coef = [soln[i] for i in range(self.Nfv + 1)]
                 CutHistory[s].append(coef)
 
         FindCut = True
-        while FindCut == True and time.time() - t0 < timeLimit:
+        while FindCut == True and time.time() - t0 < timeLimit:                 # the iteration of Backward and Forward
             MaxTime = -float('inf')
             MinTime = float('inf')
             MaxSize = None
             MinSize = None
             iter += 1
             NscenSolved = 0
-            MaxTime = -float('inf')
-            MinTime = float('inf')
             self.PrimalMaster.update()
             tStart = time.time()
             self.PrimalMaster.optimize()
@@ -300,33 +298,34 @@ class StochIPinst:
             for s in range(self.Nscen):
                 theta_value[s] = self.theta[s].x
 
-            for s in range(self.Nscen):
+            for s in range(self.Nscen):                                                                             # the iteration of Forward for each scenario and Backward for each scenario
                 NscenSolved = NscenSolved + 1
                 if time.time() - t0 > timeLimit:
                     break
                 tScen = time.time()
                 LagIter = 0
-                scenmax = Model('scenmax')
+                scenmax = Model('scenmax')                                                                          # the problem (17) in the paper
                 piScenmax = {}
                 absPiScenmax = {}
                 pi0 = scenmax.addVar(lb=0.0)
-                lpi = scenmax.addVar(lb=-GRB.INFINITY)
+                lpi = scenmax.addVar(lb=-GRB.INFINITY)                                                              # lpi is the linear approximation of Q_s(pi, pi0)
                 for i in range(self.Nfv):
                     piScenmax[i] = scenmax.addVar(lb=-GRB.INFINITY)
                     absPiScenmax[i] = scenmax.addVar(lb=0.0)
                     scenmax.addConstr(piScenmax[i] <= absPiScenmax[i])
                     scenmax.addConstr(-piScenmax[i] <= absPiScenmax[i])
-                scenmax.addConstr(quicksum(absPiScenmax[i] for i in range(self.Nfv)) + pi0Coef * pi0 <= 1)
+                scenmax.addConstr(quicksum(absPiScenmax[i] for i in range(self.Nfv)) + pi0Coef * pi0 <= 1)          # we only restrict the feasible region of (pi0, pi) by regularization condition, that is, |pi| + alpha * pi0 <= 1
                 scenmax.setObjective(
-                    -quicksum(piScenmax[i] * x_value[i] for i in range(self.Nfv)) + lpi - pi0 * theta_value[s])
+                    lpi -quicksum(piScenmax[i] * x_value[i] for i in range(self.Nfv)) - pi0 * theta_value[s]
+                                        )
                 scenmax.modelSense = GRB.MAXIMIZE
                 scenmax.setParam('OutputFlag', False)
 
                 # Add stored solutions
                 for coef in CutHistory[s]:
                     scenmax.addConstr(
-                        lpi <= quicksum(coef[i] * piScenmax[i] for i in range(self.Nfv)) + coef[self.Nfv] * pi0)
-
+                        lpi <= quicksum(coef[i] * piScenmax[i] for i in range(self.Nfv)) + coef[self.Nfv] * pi0
+                                            )
                 scenmax.update()
                 tStart = time.time()
                 scenmax.optimize()
@@ -340,34 +339,36 @@ class StochIPinst:
                 piBest = None
                 pi0Best = None
                 lBest = None
-                LB = -float('inf')
+                LB = -float('inf')                                                                                      # Lower bound of level method Gap
                 UB = float('inf')
                 lpiold = float('inf')
 
-                while ContinueCondition == True and time.time() < t0 + timeLimit:
+                while ContinueCondition == True and time.time() < t0 + timeLimit:                                       # the level-set method iteration to find the best dual multipliers
                     LagIter += 1
                     if UB < tol * (abs(theta_value[s]) + 1):
                         print('scenario ' + str(s) + ': UB < tol, total time: ' + str(time.time() - t0))
                         break
                     tStart = time.time()
                     tlimitValue = max(timeLimit - (time.time() - t0), 0)
-                    ObjV, xHat, yObjV, SubOpt, BestBound = self.SolveScenSub(scen_id=s, objCoef=piHat, regCoefy=pi0Hat,
-                                                                             tlimit=tlimitValue)
+                    ObjV, xHat, yObjV, SubOpt, BestBound = self.SolveScenSub(scen_id=s, objCoef=piHat, regCoefy=pi0Hat,   # this is the problem Q(pi, pi0)
+                                                                             tlimit=tlimitValue) 
                     TimeSub = TimeSub + (time.time() - tStart)
-                    for soln in SubOpt:
-                        scenmax.addConstr(
-                            lpi <= quicksum(soln[i] * piScenmax[i] for i in range(self.Nfv)) + soln[self.Nfv] * pi0)
-                    scenmax.addConstr(lpi <= quicksum(xHat[i] * piScenmax[i] for i in range(self.Nfv)) + yObjV * pi0)
+
+                    # every time, we collect all optimal and suboptimal solution from the solver to generate the cutting-plane approximation
                     coef = [xHat[i] for i in range(self.Nfv)]
                     coef.append(yObjV)
                     CutHistory[s].append(coef)
+                    scenmax.addConstr(lpi <= quicksum(xHat[i] * piScenmax[i] for i in range(self.Nfv)) + yObjV * pi0)
                     for soln in SubOpt:
                         coef = [soln[i] for i in range(self.Nfv + 1)]
                         CutHistory[s].append(coef)
-                    gap = ObjV - pi0Hat * theta_value[s] - sum(piHat[i] * x_value[i] for i in range(self.Nfv))
-                    if gap > LB:
+                        scenmax.addConstr(
+                            lpi <= quicksum(soln[i] * piScenmax[i] for i in range(self.Nfv)) + soln[self.Nfv] * pi0)
+
+                    gap = ObjV - pi0Hat * theta_value[s] - sum(piHat[i] * x_value[i] for i in range(self.Nfv))           # this is a LB (feasible point)
+                    if gap > LB:                                                                                         # find a better LB
                         LB = gap
-                        piBest = piHat.copy()
+                        piBest = piHat.copy()                                                                            # then we update incumbent
                         pi0Best = pi0Hat
                         lBest = ObjV
 
@@ -375,7 +376,7 @@ class StochIPinst:
                     tStart = time.time()
                     scenmax.optimize()
                     TimeCutLP = TimeCutLP + (time.time() - tStart)
-                    UB = scenmax.objval
+                    UB = scenmax.objval                                                                                   # UB from the optimal solution of relaxed problem
 
                     if LagIter % 100 == 0:
                         print('IterLag. Cut iter: ' + str(LagIter) + ', scenario: ' + str(s) + ', UB: ' + str(
@@ -390,13 +391,14 @@ class StochIPinst:
                                 s) + ', pi0Hat <= 1e-6, total time: ' + str(time.time() - t0))
                         ContinueCondition = False
                         if pi0Best > 1e-6 and LB / pi0Best >= tol * (abs(theta_value[s]) + 1):
+                            # note that here is added the cut for Master problem
                             self.PrimalMaster.addConstr(pi0Best * self.theta[s] >= -quicksum(
                                 piBest[i] * self.x[i] for i in range(self.Nfv)) + lBest)
                             self.Ncuts += 1
                             subg = {}
                             for i in range(self.Nfv):
                                 subg[i] = -piBest[i] / pi0Best
-                            FindCut = True
+                            FindCut = True                                                          # the parameter FindCut is to control whether we will have a new iteration from the very beginning
                     else:
                         QPsolved = True
                         lt = UB - 0.3 * (UB - LB)
@@ -407,16 +409,16 @@ class StochIPinst:
                             quicksum((piScenmax[i] - piHat[i]) * (piScenmax[i] - piHat[i]) for i in range(self.Nfv)) + (
                                         pi0 - pi0Hat) * (pi0 - pi0Hat))
                         scenmax.modelSense = GRB.MINIMIZE
-                        scenmax.params.Method = 2
+                        scenmax.params.Method = 2           # interior-point method for QP
                         scenmax.update()
                         tStart = time.time()
                         scenmax.optimize()
                         if scenmax.status != 2:
                             print('QP status: ' + str(scenmax.status) + ' with Method=' + str(
                                 scenmax.params.Method) + '... Switching to 1')
-                            scenmax.params.Method = 1
-                            scenmax.update()
-                            scenmax.optimize()
+                            scenmax.params.Method = 1                                               # model.params.Method = - 1, automatically find the suitable method; 
+                            scenmax.update()                                                        # model.params.Method = 0, primal simplex; model.params.Method = 1, dual simplex; 
+                            scenmax.optimize()                                                      # model.params.Method = 2, interior-point method for QP; model.params.Method = 3, parallel;...
                             if scenmax.status != 2:
                                 print('QP status: ' + str(scenmax.status) + ' with Method=' + str(
                                     scenmax.params.Method) + '... Switching to 0')
@@ -431,7 +433,7 @@ class StochIPinst:
                         piHatOld = piHat.copy()
                         pi0HatOld = pi0Hat
                         for i in range(self.Nfv):
-                            piHat[i] = piScenmax[i].x
+                            piHat[i] = piScenmax[i].x                                               # we use bundle method to update the multipliers
                         pi0Hat = pi0.x
                         if QPsolved == False or (
                                 max(abs(piHat[i] - piHatOld[i]) for i in range(self.Nfv)) < 1e-10 and abs(
@@ -442,6 +444,7 @@ class StochIPinst:
                                     s) + ', violation: ' + str(LB / pi0Best) + ', total time: ' + str(time.time() - t0))
                             ContinueCondition = False
                             if pi0Best > 1e-6 and LB >= tol * (abs(theta_value[s]) + 1):
+                                # Add the cut for Master problem
                                 self.PrimalMaster.addConstr(pi0Best * self.theta[s] >= -quicksum(
                                     piBest[i] * self.x[i] for i in range(self.Nfv)) + lBest)
                                 self.Ncuts += 1
@@ -449,10 +452,13 @@ class StochIPinst:
                         lpiold = lpi.x
                         scenmax.remove(ltConstr)
                         scenmax.setObjective(
-                            -quicksum(piScenmax[i] * x_value[i] for i in range(self.Nfv)) + lpi - pi0 * theta_value[s])
+                                    lpi - quicksum(piScenmax[i] * x_value[i] for i in range(self.Nfv)) - pi0 * theta_value[s]
+                                                )
                         scenmax.modelSense = GRB.MAXIMIZE
-                        scenmax.params.Method = -1
+                        scenmax.params.Method = -1         # change to automatically find a suitable method to solve the problem
                         scenmax.update()
+
+
                 tScen = time.time() - tScen
                 if tScen > MaxTime:
                     MaxTime = tScen
