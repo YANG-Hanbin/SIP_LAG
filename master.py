@@ -33,7 +33,7 @@ class StochIPinst:
         MinTime = None
         MaxSize = None
         MinSize = None
-        x_value = {}
+        x_value = {}                                    # current Master problem, optimal x value
         theta_value = {}
         if init == True:
             self.PrimalMaster.setObjective(0.0)
@@ -50,7 +50,7 @@ class StochIPinst:
             self.PrimalMaster.update()
             tStart = time.time()
             self.PrimalMaster.optimize()
-            TimeMasterLP = TimeMasterLP + (time.time() - tStart)
+            TimeMasterLP = TimeMasterLP + (time.time() - tStart)                        # Master problem will be solved multiple times, we add all time together
             for i in range(self.Nfv):
                 x_value[i] = self.x[i].x
             for s in range(self.Nscen):
@@ -64,41 +64,46 @@ class StochIPinst:
         while ContinueCondition == True and time.time() - t0 < timeLimit:
             iter += 1
             NscenSolved = 0
-            MaxTime = -float('inf')
+            MaxTime = -float('inf')                                             # combine with the following code, we know that we want to record the maximum time to solve a scenario
             MinTime = float('inf')
             BendersCutsAdded = 0
-            ContinueCondition = False
-            CurObj = sum(self.cVec[i] * x_value[i] for i in range(self.Nfv))
+            ContinueCondition = False   
+            CurObj = sum(self.cVec[i] * x_value[i] for i in range(self.Nfv))    # current objective
             for s in range(self.Nscen):
                 NscenSolved = NscenSolved + 1
                 tScen = time.time()
                 ObjV, const, subg = self.SolveBendersSub(scen_id=s, x_input=x_value)
                 if theta_value[s] < ObjV - tol * (abs(theta_value[s]) + 1) or init == True:
-                    self.thetaCutList[s].append(self.PrimalMaster.addConstr(
-                        self.theta[s] >= const + quicksum(subg[i] * self.x[i] for i in range(self.Nfv))))
-                    self.Ncuts += 1
-                    BendersCutsAdded += 1
+                    # for each scenario, we have a cutList (initiated in snipMaster.readData)
+                    self.thetaCutList[s].append( # we append the cut
+                        self.PrimalMaster.addConstr(self.theta[s] >= const + quicksum(subg[i] * self.x[i] for i in range(self.Nfv)))  # we add a Benders cut into the Master problem
+                        )
+                    self.Ncuts += 1                                 # this records all cuts cross scenarios
+                    BendersCutsAdded += 1                           # this only records the cuts in this scenario
                     self.cutlist[s].append(subg)
                     coef = subg.copy()
                     coef[self.Nfv] = 1
                     self.coeflist[s].append(coef)
                     if method == 'cutpl':
-                        ContinueCondition = True
-                CurObj = CurObj + self.pVec[s] * ObjV
-                tScen = time.time() - tScen
+                        ContinueCondition = True                    # when all scenarios have been well-approximated, the procedures will not go into here
+                CurObj = CurObj + self.pVec[s] * ObjV               # this is an upper bound (from an incumbent)
+                tScen = time.time() - tScen                         # time to solve this scenario
                 if tScen > MaxTime:
                     MaxTime = tScen
                 if tScen < MinTime:
                     MinTime = tScen
+            # each scenarios has been solved and added a cut to approximate it
+
+            # Now, solve the master problem to see what is the LB now
             self.PrimalMaster.update()
             tStart = time.time()
             self.PrimalMaster.optimize()
             TimeMasterLP = TimeMasterLP + (time.time() - tStart)
             LB = self.PrimalMaster.objval
             for s in range(self.Nscen):
-                theta_value[s] = self.theta[s].x
+                theta_value[s] = self.theta[s].x                    # here we update the approximation of value function, in the next round, if theta < BbjV, then add cut
 
-            if CurObj < BendersUB:
+            if CurObj < BendersUB:                                  # update UB
                 BendersUB = CurObj
 
             if method == 'level' and BendersUB > LB + tol * (abs(LB) + 1):
@@ -130,7 +135,8 @@ class StochIPinst:
             print('Benders Iter ' + str(iter) + ', PrimalMaster LB: ' + str(LB) + ', UB: ' + str(
                 BendersUB) + ', Cuts Added: ' + str(BendersCutsAdded))
 
-            if init == True and iter >= 1:
+            # truncate the Benders process in 'initiate' method
+            if init == True and iter >= 1:                                  
                 ContinueCondition = False
 
             if store == True:
@@ -147,7 +153,6 @@ class StochIPinst:
                 f = open(fileName, "a")
                 f.write(wrtStr)
                 f.close
-
         return TimeMasterLP
 
     # Generating strengthened Benders cuts
@@ -191,11 +196,11 @@ class StochIPinst:
             for s in range(self.Nscen):
                 NscenSolved = NscenSolved + 1
                 tScen = time.time()
-                ObjV, const, subg = self.SolveBendersSub(scen_id=s, x_input=x_value)
+                ObjV, const, subg = self.SolveBendersSub(scen_id=s, x_input=x_value)                            # subg is the dual multiplier (pi / lambda)
                 nsubg = {i: -subg[i] for i in subg}
                 tSub = time.time()
                 tlimitValue = max(timeLimit - (time.time() - t0), 0)
-                ObjV, xHat, yObjV, SubOpt, BestBound = self.SolveScenSub(scen_id=s, objCoef=nsubg, regCoefy=1,
+                ObjV, xHat, yObjV, SubOpt, BestBound = self.SolveScenSub(scen_id=s, objCoef=nsubg, regCoefy=1,  # we input the dual multiplier
                                                                          tlimit=tlimitValue)
                 TimeSub = TimeSub + (time.time() - tSub)
                 if theta_value[s] < sum(subg[i] * x_value[i] for i in range(self.Nfv)) + ObjV - tol * (

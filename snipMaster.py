@@ -11,7 +11,7 @@ class SNIPinst(master.StochIPinst):
 		self.R = R
 		self.snipNo = snipNo
 		self.Nscen = None
-		self.Nfv = None
+		self.Nfv = None								# Number of variable (Nfv)
 		self.cVec = None 							# dual multiplier
 		self.pVec = None                            # scenario probability
 		self.A = []                                 # All non-interdictable arcs with two probabilities
@@ -36,8 +36,8 @@ class SNIPinst(master.StochIPinst):
 		self.Ncuts = 0
 		self.Nsubs = 0
 		# Subproblems
-		self.scensub = {}
-		self.scenrc = None
+		self.scensub = {}											# each scenario subproblem, corresponding to the model (12) in paper
+		self.scenrc = None         									# the recourse problem, i.e., after we have determined the x, corresponding to the model (6)
 
 	def Initialize(self): 
 		objCoef = {}
@@ -56,8 +56,8 @@ class SNIPinst(master.StochIPinst):
 			for i in range(self.n):
 				ypi[i] = self.scensub[s].addVar(lb=0.0,ub=1.0,obj=0.0,name="y"+str(i))
 			ypi[self.ind[self.SCEN[s,0]]].obj = regCoefy
-			self.scensub[s].addConstr(quicksum(x_scen[i] for i in range(self.Nfv)) <= self.R)
-			for i in range(self.a):
+			self.scensub[s].addConstr(quicksum(x_scen[i] for i in range(self.Nfv)) <= self.R)       # we assume that we only have the constraint in the number of sensors (do not take into account of the specific cost)
+			for i in range(self.a):            														# a := the number of interdictable arcs
 				self.scensub[s].addConstr(ypi[self.ind[self.A[i][0]]] - self.A[i][2]*ypi[self.ind[self.A[i][1]]] >= 0)
 			for i in range(self.ad):
 				self.scensub[s].addConstr(ypi[self.ind[self.AD[i][0]]] - self.AD[i][2]*ypi[self.ind[self.AD[i][1]]] >= -(self.AD[i][2] - self.AD[i][3])*self.PSI[s,self.ind[self.AD[i][1]]]*x_scen[i])
@@ -126,7 +126,8 @@ class SNIPinst(master.StochIPinst):
 		self.PrimalMaster.setParam( 'OutputFlag', False )
 		self.PrimalMaster.modelSense = GRB.MINIMIZE
 		self.PrimalMaster.update()
-		self.addBenders(init=True)
+		self.addBenders(init=True)                        # init = True, so here will not write any thing into the file
+														  # objective function of primalMaster will be set in method 'addBenders' when init = True
 
 	def readData(self):
 		instanceName = self.instance+'.txt'
@@ -201,15 +202,15 @@ class SNIPinst(master.StochIPinst):
 		for s in range(self.Nscen):
 			self.cutlist[s] = []
 			self.coeflist[s] = []
-			self.thetaCutList[s] = []
+			self.thetaCutList[s] = []        			# we have a cut list for each scenario
 
 		self.Initialize()
 
 
-	def SolveBendersSub(self,scen_id,x_input):
-		for i in range(self.ad):
+	def SolveBendersSub(self,scen_id,x_input):  # we have only one recourse model, therefore, we MUST delete these constraints and obj
+		for i in range(self.ad):                # these constraints will be updated in the next scenario
 			self.scenrc.getConstrByName("subgCon"+str(i)).RHS = -(self.AD[i][2] - self.AD[i][3])*self.PSI[scen_id,self.ind[self.AD[i][1]]]*x_input[i]
-		self.scenrc.getVarByName("y"+str(self.ind[self.SCEN[scen_id,1]])).lb = 1.0
+		self.scenrc.getVarByName("y"+str(self.ind[self.SCEN[scen_id,1]])).lb = 1.0          # add the constraint, such that the pi is a probability
 		self.scenrc.getVarByName("y"+str(self.ind[self.SCEN[scen_id,0]])).obj = 1.0
 		self.scenrc.update()
 		self.scenrc.optimize()
@@ -218,40 +219,40 @@ class SNIPinst(master.StochIPinst):
 		for i in range(self.ad):
 			subg[i] = -(self.AD[i][2] - self.AD[i][3])*self.PSI[scen_id,self.ind[self.AD[i][1]]]*self.scenrc.getConstrByName("subgCon"+str(i)).pi
 		const = self.scenrc.objval - sum(subg[i]*x_input[i] for i in range(self.Nfv))
-		self.scenrc.getVarByName("y"+str(self.ind[self.SCEN[scen_id,1]])).lb = 0.0
-		self.scenrc.getVarByName("y"+str(self.ind[self.SCEN[scen_id,0]])).obj = 0.0
+		self.scenrc.getVarByName("y"+str(self.ind[self.SCEN[scen_id,1]])).lb = 0.0          # delete the constraints
+		self.scenrc.getVarByName("y"+str(self.ind[self.SCEN[scen_id,0]])).obj = 0.0         # delete the obj function (we need to change this due to we set obj function by obj parameter)
 		self.scenrc.update()
-		Benderscoef = []
-		for i in range(self.Nfv):
-			Benderscoef.append(subg[i])
-		Benderscoef.append(const)
-		Benderscoef = np.array([Benderscoef])
-		self.BendersCuts[scen_id] = np.append(self.BendersCuts[scen_id], Benderscoef, axis=0)
+		# Benderscoef = []
+		# for i in range(self.Nfv):
+		# 	Benderscoef.append(subg[i])
+		# Benderscoef.append(const)
+		# Benderscoef = np.array([Benderscoef])
+		# self.BendersCuts[scen_id] = np.append(self.BendersCuts[scen_id], Benderscoef, axis=0)
 		return ObjValue,const,subg
 
 	def SolveScenSub(self,scen_id,objCoef,regCoefy,tlimit,MIPgap='nan'):
 		self.scensub[scen_id].params.TimeLimit = tlimit
-		if MIPgap != 'nan':
+		if MIPgap != 'nan': 																			# NaN, not a number
 			self.scensub[scen_id].params.MIPGap = MIPgap
 		for i in range(self.Nfv):
-			self.scensub[scen_id].getVarByName("x"+str(i)).obj = objCoef[i]
+			self.scensub[scen_id].getVarByName("x"+str(i)).obj = objCoef[i] 							# the objCoef is the dual multiplier
 		self.scensub[scen_id].getVarByName("y"+str(self.ind[self.SCEN[scen_id,0]])).obj = regCoefy
 		self.scensub[scen_id].update()
 		self.scensub[scen_id].optimize()
-		if self.scensub[scen_id].status != 2:
+		if self.scensub[scen_id].status != 2:   # 2 = optimality                  						# 1: loaded but no solution is available; 2: optimal; 3: infeasible; 4: inf_or_unbounded; 5: unbounded; 7: iteration_limit; 13: suboptimal
 			print('IP Status: '+str(self.scensub[scen_id].status))
 		ObjReturn = self.scensub[scen_id].objval
 		BestBound = self.scensub[scen_id].ObjBound
 		x_value = {}
 		for i in range(self.Nfv):
 			x_value[i] = self.scensub[scen_id].getVarByName("x"+str(i)).x
-		yObjV = self.scensub[scen_id].getVarByName("y"+str(self.ind[self.SCEN[scen_id,0]])).x
+		yObjV = self.scensub[scen_id].getVarByName("y"+str(self.ind[self.SCEN[scen_id,0]])).x			# this is the objective function
 		self.Nsubs += 1
 		SubOpt = []
-		for k in range(self.scensub[scen_id].SolCount-1):
-			self.scensub[scen_id].setParam('SolutionNumber', k+1)
-			soln = {}
-			modelSoln = self.scensub[scen_id].Xn
+		for k in range(self.scensub[scen_id].SolCount-1):												# SolCount := the number of feasible solutions
+			self.scensub[scen_id].setParam('SolutionNumber', k+1)										# SolutionNumber := used to choose a suboptimal solution
+			soln = {}																					# if there are multiple feasible solutions, you can determine which one you will obtain by assign different SolutionNumber. The worst one is SolutionNumber = SolCount - 1
+			modelSoln = self.scensub[scen_id].Xn														# Then use 'Xn' to access this solution
 			for i in range(self.Nfv):
 				soln[i] = modelSoln[i]
 			soln[self.Nfv] = modelSoln[self.Nfv+self.ind[self.SCEN[scen_id,0]]]

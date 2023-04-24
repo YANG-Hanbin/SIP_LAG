@@ -1,0 +1,1 @@
+BendersMethod=cutpl	tol=1e-06	gapTol=0.5	pi0Coef=0.1	timeLimit=3600
