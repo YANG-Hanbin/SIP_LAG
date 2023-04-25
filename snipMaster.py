@@ -29,15 +29,15 @@ class SNIPinst(master.StochIPinst):
 		self.theta = {}
 		self.x = {}
 		# Benders cuts lists
-		self.cutlist = {}
+		self.cutlist = {}							# cutlist[s] <- subg
 		# All cuts coef. lists
-		self.coeflist = {}
-		self.thetaCutList = {}
+		self.coeflist = {}							# coeflist[s] <- (subg, 1) or ( - piBest, pi0Best)
+		self.thetaCutList = {}						# key is scenario, thetaCutList[s] <- theta >= const + subg'*x
 		self.Ncuts = 0
 		self.Nsubs = 0
 		# Subproblems
-		self.scensub = {}											# each scenario subproblem, corresponding to the model (12) in paper
-		self.scenrc = None         									# the recourse problem, i.e., after we have determined the x, corresponding to the model (6)
+		self.scensub = {}							# each scenario subproblem, corresponding to the model (12) in paper
+		self.scenrc = None         					# the recourse problem, i.e., after we have determined the x, corresponding to the model (6)
 
 	def Initialize(self): 
 		objCoef = {}

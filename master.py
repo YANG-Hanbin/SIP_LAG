@@ -232,7 +232,7 @@ class StochIPinst:
             f.close
 
     # Exact separation of Lagrangian cuts
-    def IterativeLag(self, BDmethod='level', tol=1e-4, gapTol=5e-1, pi0Coef=1e-2, timeLimit=60 * 60):       # pi0Coef is the alpha in (19)
+    def IterativeLag(self, BDmethod='level', tol=1e-4, gapTol=5e-1, pi0Coef=1e-2, timeLimit=60 * 60):       # pi0Coef is the alpha in (19
         # Solved by level method (vanilla cutting plane is much slower for high dimensional problems)
         wrtStr = 'BendersMethod=' + str(BDmethod) + '\ttol=' + str(tol) + '\tgapTol=' + str(
             gapTol) + '\tpi0Coef=' + str(pi0Coef) + '\ttimeLimit=' + str(timeLimit) + '\n'
@@ -455,7 +455,7 @@ class StochIPinst:
                                     lpi - quicksum(piScenmax[i] * x_value[i] for i in range(self.Nfv)) - pi0 * theta_value[s]
                                                 )
                         scenmax.modelSense = GRB.MAXIMIZE
-                        scenmax.params.Method = -1         # change to automatically find a suitable method to solve the problem
+                        scenmax.params.Method = -1                                                   # change to automatically find a suitable method to solve the problem
                         scenmax.update()
 
 
@@ -504,8 +504,8 @@ class StochIPinst:
         TimeCutQP = None
         TimeBaseMIP = 0.0
         TimeSub = 0.0
-        x_value = {}
-        theta_value = {}
+        x_value = {}                                # Master problem variables 
+        theta_value = {}                            # Master problem variables - approximation
         iter = 0
         Iter_Bound = []
         Iter_Time = []
@@ -528,20 +528,20 @@ class StochIPinst:
             tStart = time.time()
             tlimitValue = max(timeLimit - (time.time() - t0), 0)
             ObjV, xHat, yObjV, SubOpt, BestBound = self.SolveScenSub(scen_id=s, objCoef=piHat, regCoefy=pi0Hat,
-                                                                     tlimit=tlimitValue)
+                                                                     tlimit=tlimitValue)                            # solve a subproblem (12) with given dual (0,...0, 1)
             TimeSub = TimeSub + (time.time() - tStart)
             coef = [xHat[i] for i in range(self.Nfv)]
             coef.append(yObjV)
             CutHistory[s].append(coef)
             for soln in SubOpt:
                 coef = [soln[i] for i in range(self.Nfv + 1)]
-                CutHistory[s].append(coef)
+                CutHistory[s].append(coef)                                                                          # obtain the corresponding optimal x and y => z, theta, the coefficients for linear approximation of Q
 
         FindCut = True
         StopCondt = False
         # Add new stopping condt
         while FindCut == True and time.time() - t0 < timeLimit and StopCondt == False:
-            iter += 1
+            iter += 1                                                                               # the number of iteration in the outest
             AvgBaseSize = 0
             NscenSolved = 0
             MaxTime = -float('inf')
@@ -564,30 +564,29 @@ class StochIPinst:
                 theta_value[s] = self.theta[s].x
             PredValList = []
             CoefBase = {}
-            BaseSize = {}
+            BaseSize = {}                                                                   # the Benders cut pool used to approximate Lag. Dual Multipliers
             ScenSet = []
             for s in range(self.Nscen):
                 Ncuts = min(maxNcuts, len(self.cutlist[s]))
                 RstrLagIter = 0
 
-                if mip == False:
+                if mip == False:                                                            
                     # 1. Choose last Benders' cuts
                     BaseSize[s] = Ncuts
                     CoefBase[s] = {}
                     for k in range(Ncuts):
                         CoefBase[s][k] = self.cutlist[s][-k - 1].copy()
-                else:
+                    ScenSet = range(self.Nscen)
+                else:                                                                      
                     # 2. Approximate cut selection problem by MIP
-
                     # Increase the pool
-
                     if poolplus == True:
                         # Add unconstrained solution
                         scenmax = Model('scenmax')
-                        piScenmax = {}
-                        absPiScenmax = {}
-                        pi0 = scenmax.addVar(lb=0.0)
-                        lpi = scenmax.addVar(lb=-GRB.INFINITY)
+                        piScenmax = {}                                                  # pi
+                        absPiScenmax = {}                                               # |pi|
+                        pi0 = scenmax.addVar(lb=0.0)                                    # pi0
+                        lpi = scenmax.addVar(lb=-GRB.INFINITY)                          # tau - linear approximation of Q(pi, pi0)
                         for i in range(self.Nfv):
                             piScenmax[i] = scenmax.addVar(lb=-GRB.INFINITY)
                             absPiScenmax[i] = scenmax.addVar(lb=0.0)
@@ -599,7 +598,7 @@ class StochIPinst:
                             scenmax.addConstr(
                                 lpi <= quicksum(coef[i] * piScenmax[i] for i in range(self.Nfv)) + coef[self.Nfv] * pi0)
                         scenmax.setObjective(
-                            -quicksum(piScenmax[i] * x_value[i] for i in range(self.Nfv)) + lpi - pi0 * theta_value[s])
+                                lpi - quicksum(piScenmax[i] * x_value[i] for i in range(self.Nfv)) - pi0 * theta_value[s])
                         scenmax.modelSense = GRB.MAXIMIZE
                         scenmax.setParam('OutputFlag', False)
 
@@ -617,8 +616,8 @@ class StochIPinst:
                             ((piScenmax[i] - subg_value[s][i] / normsum) * (piScenmax[i] - subg_value[s][i] / normsum))
                             for i in range(self.Nfv)) + (pi0 - 1 / normsum) * (pi0 - 1 / normsum))
                         scenmax.addConstr(
-                            -quicksum(piScenmax[i] * x_value[i] for i in range(self.Nfv)) + lpi - pi0 * theta_value[
-                                s] >= LevelParam * objUB)
+                            lpi - quicksum(piScenmax[i] * x_value[i] for i in range(self.Nfv)) - pi0 * theta_value[s] >= LevelParam * objUB
+                                            )
                         scenmax.modelSense = GRB.MINIMIZE
                         scenmax.params.Method = 0
                         scenmax.params.TimeLimit = 10.0
@@ -633,12 +632,12 @@ class StochIPinst:
                         else:
                             print('Scen ' + str(s) + ' unconstrained problem not solved...: ' + str(scenmax.status))
 
-                    # MIP formulation
+                    # MIP formulation                           ---------------------                        # choose cuts by problem (28)
                     cutlistLen = len(self.cutlist[s])
                     Ncuts = min(maxNcuts, len(self.cutlist[s]))
-                    scenmaxhat = Model('scenmaxhat')
+                    scenmaxhat = Model('scenmaxhat')                                                         # problem (28)
                     pih = {}
-                    cutlamh = {}
+                    cutlamh = {}                                                                             # beta in  (22)
                     absCutlamh = {}
                     zlamh = {}
                     pi0h = scenmaxhat.addVar(lb=0.0)
@@ -653,16 +652,18 @@ class StochIPinst:
                     for i in range(self.Nfv):
                         pih[i] = scenmaxhat.addVar(lb=-GRB.INFINITY)
                         scenmaxhat.addConstr(
-                            pih[i] == quicksum(cutlamh[k] * self.cutlist[s][k][i] for k in range(cutlistLen)))
-                    scenmaxhat.addConstr(quicksum(zlamh[k] for k in range(cutlistLen)) <= Ncuts)
-                    scenmaxhat.addConstr(quicksum(absCutlamh[k] for k in range(cutlistLen)) + pi0Coef * pi0h <= 1)
+                            pih[i] == quicksum(cutlamh[k] * self.cutlist[s][k][i] for k in range(cutlistLen)))   # constraint (22)
+                    scenmaxhat.addConstr(quicksum(zlamh[k] for k in range(cutlistLen)) <= Ncuts)                 # constraint (25)
+                    scenmaxhat.addConstr(quicksum(absCutlamh[k] for k in range(cutlistLen)) + pi0Coef * pi0h <= 1) # constraint in (20)
 
                     for coef in CutHistory[s]:
                         scenmaxhat.addConstr(
                             lpih <= quicksum(coef[i] * pih[i] for i in range(self.Nfv)) + coef[self.Nfv] * pi0h)
 
                     scenmaxhat.setObjective(
-                        -quicksum(pih[i] * x_value[i] for i in range(self.Nfv)) + lpih - pi0h * theta_value[s])
+                        lpih - quicksum(pih[i] * x_value[i] for i in range(self.Nfv)) - pi0h * theta_value[s])
+                    # until now, we just established problem (28) with normization condition in (20)
+
                     scenmaxhat.modelSense = GRB.MAXIMIZE
                     scenmaxhat.setParam('OutputFlag', False)
 
@@ -675,18 +676,17 @@ class StochIPinst:
                     BaseSize[s] = 0
                     CoefBase[s] = {}
                     for t in range(cutlistLen):
-                        if zlamh[t].x > 0.5:
-                            CoefBase[s][BaseSize[s]] = self.cutlist[s][t].copy()
+                        if zlamh[t].x > 0.5:                            
+                            CoefBase[s][BaseSize[s]] = self.cutlist[s][t].copy()                                # CoefBase is the cuts chosen by MIP
                             BaseSize[s] = BaseSize[s] + 1
                             if t == cutlistLen - 1 and poolplus == True:
                                 print('Scen ' + str(s) + " generated vector accepted")
 
-                    if PredValList[s] <= tol * (abs(theta_value[s]) + 1):
+                    if PredValList[s] <= tol * (abs(theta_value[s]) + 1):                                       # upper bound is too small, we terminate the alg
                         print('Scen ' + str(s) + ' predicted value <= tol')
                     else:
-                        ScenSet.append(s)
-            if mip == False:
-                ScenSet = range(self.Nscen)
+                        ScenSet.append(s)                                                                       # add this scenario into ScenSet
+
             if len(ScenSet) > 0:
                 AvgBaseSize = sum(BaseSize[s] for s in ScenSet) / len(ScenSet)
                 MaxSize = max(len(CutHistory[s]) for s in ScenSet)
@@ -699,7 +699,7 @@ class StochIPinst:
                 NscenSolved = NscenSolved + 1
                 scenmax = Model('scenmax')
                 piScenmax = {}
-                cutlam = {}
+                cutlam = {}                                                                                         # beta in (22)
                 for k in range(BaseSize[s]):
                     cutlam[k] = scenmax.addVar(lb=-GRB.INFINITY)
                 pi0 = scenmax.addVar(lb=0.0)
@@ -707,25 +707,26 @@ class StochIPinst:
                 piConstr = {}
                 for i in range(self.Nfv):
                     piScenmax[i] = scenmax.addVar(lb=-GRB.INFINITY)
-                    piConstr[i] = scenmax.addConstr(
-                        piScenmax[i] == quicksum(cutlam[k] * CoefBase[s][k][i] for k in range(BaseSize[s])))
-                if newn == True:
+                    piConstr[i] = scenmax.addConstr(                                                                # constraint (22) for each component
+                        piScenmax[i] == quicksum(cutlam[k] * CoefBase[s][k][i] for k in range(BaseSize[s]))         # pi is a linear combination of previous Benders cut
+                                        )
+                if newn == True:                                                                                    # control (19) or (20)
                     absCutlam = {}
-                    for k in range(BaseSize[s]):
+                    for k in range(BaseSize[s]):                                            
                         absCutlam[k] = scenmax.addVar(lb=0.0)
                         scenmax.addConstr(cutlam[k] <= absCutlam[k])
                         scenmax.addConstr(-cutlam[k] <= absCutlam[k])
-                    scenmax.addConstr(quicksum(absCutlam[k] for k in range(BaseSize[s])) + pi0Coef * pi0 <= 1)
+                    scenmax.addConstr(quicksum(absCutlam[k] for k in range(BaseSize[s])) + pi0Coef * pi0 <= 1)      # (20)
                 else:
                     absPiScenmax = {}
                     for i in range(self.Nfv):
                         absPiScenmax[i] = scenmax.addVar(lb=0.0)
                         scenmax.addConstr(piScenmax[i] <= absPiScenmax[i])
                         scenmax.addConstr(-piScenmax[i] <= absPiScenmax[i])
-                    scenmax.addConstr(quicksum(absPiScenmax[i] for i in range(self.Nfv)) + pi0Coef * pi0 <= 1)
+                    scenmax.addConstr(quicksum(absPiScenmax[i] for i in range(self.Nfv)) + pi0Coef * pi0 <= 1)      # (19)
 
                 scenmax.setObjective(
-                    -quicksum(piScenmax[i] * x_value[i] for i in range(self.Nfv)) + lpi - pi0 * theta_value[s])
+                    lpi - quicksum(piScenmax[i] * x_value[i] for i in range(self.Nfv)) - pi0 * theta_value[s])
                 scenmax.modelSense = GRB.MAXIMIZE
                 scenmax.setParam('OutputFlag', False)
 
@@ -733,7 +734,7 @@ class StochIPinst:
                 for coef in CutHistory[s]:
                     scenmax.addConstr(
                         lpi <= quicksum(coef[i] * piScenmax[i] for i in range(self.Nfv)) + coef[self.Nfv] * pi0)
-
+                                                                                                                    # until now, we have established problem (28) but without binary variables to choose benders duals
                 scenmax.update()
                 tStart = time.time()
                 scenmax.optimize()
@@ -750,12 +751,12 @@ class StochIPinst:
                 lpiold = float('inf')
                 LB = -float('inf')
                 UB = float('inf')
-                while ContinueCondition == True and time.time() - t0 < timeLimit:
-                    RstrLagIter += 1
-                    if UB < tol * (abs(theta_value[s]) + 1):
+                while ContinueCondition == True and time.time() - t0 < timeLimit:                               # this iteration is for find a good dual multiplier (pi, pi0)
+                    RstrLagIter += 1                                                                            # the number of iterations to generate a Lag. cut
+                    if UB < tol * (abs(theta_value[s]) + 1):                                                    # in alg.1, if UB is too small, we terminate the alg
                         print('RstrLag. Cut iter: ' + str(RstrLagIter) + ', scenario ' + str(s) + ': UB = ' + str(
                             UB) + ' < tol, base size: ' + str(BaseSize[s]))
-                        break
+                        break                                                                                   # if the UB is too small, we break, and do NOT add a Lag. cut
                     tStart = time.time()
                     tlimitValue = max(timeLimit - (time.time() - t0), 0)
                     ObjV, xHat, yObjV, SubOpt, BestBound = self.SolveScenSub(scen_id=s, objCoef=piHat, regCoefy=pi0Hat,
@@ -784,7 +785,7 @@ class StochIPinst:
                     tStart = time.time()
                     scenmax.optimize()
                     TimeCutLP = TimeCutLP + (time.time() - tStart)
-                    UB = scenmax.objval
+                    UB = scenmax.objval                                                                     # UB of problem (17)
 
                     if RstrLagIter % 100 == 0:
                         print('RstrLag. Cut iter: ' + str(RstrLagIter) + ', scenario: ' + str(s) + ', UB: ' + str(
@@ -800,16 +801,19 @@ class StochIPinst:
                                 BaseSize[s]))
                         ContinueCondition = False
                         if pi0Best > 1e-6 and LB >= tol * (abs(theta_value[s]) + 1):
-                            self.thetaCutList[s].append(self.PrimalMaster.addConstr(
-                                pi0Best * self.theta[s] >= -quicksum(
-                                    piBest[i] * self.x[i] for i in range(self.Nfv)) + lBest))
+                            # iteration finish for this scenario, and we will add a cut to Master problem
+                            self.thetaCutList[s].append(
+                                self.PrimalMaster.addConstr(
+                                    pi0Best * self.theta[s] >= -quicksum(piBest[i] * self.x[i] for i in range(self.Nfv)) + lBest
+                                                        )
+                                                    )
                             coef = {}
                             for i in range(self.Nfv):
                                 coef[i] = -piBest[i]
                             coef[self.Nfv] = pi0Best
                             self.coeflist[s].append(coef)
                             self.Ncuts += 1
-                            FindCut = True
+                            FindCut = True                                                                      # continue the outest iteration
                     else:
                         piHatOld = piHat.copy()
                         pi0HatOld = pi0Hat
@@ -823,19 +827,20 @@ class StochIPinst:
                                 print('RstrLag. Cut iter: ' + str(RstrLagIter) + ', scenario: ' + str(
                                     s) + ', violation: ' + str(LB / pi0Best) + ', total time: ' + str(
                                     time.time() - t0) + ', base size: ' + str(BaseSize[s]))
-                            ContinueCondition = False
-                            if pi0Best > 1e-6 and LB >= tol * (abs(theta_value[s]) + 1):
+                            ContinueCondition = False                                                               # we finish this Lag. cut
+                            if pi0Best > 1e-6 and LB >= tol * (abs(theta_value[s]) + 1):                            # satisfy certain conditions, we then add a cut to Master problem
                                 self.thetaCutList[s].append(self.PrimalMaster.addConstr(
                                     pi0Best * self.theta[s] >= -quicksum(
                                         piBest[i] * self.x[i] for i in range(self.Nfv)) + lBest))
+                                # record the cut
                                 coef = {}
                                 for i in range(self.Nfv):
                                     coef[i] = -piBest[i]
                                 coef[self.Nfv] = pi0Best
                                 self.coeflist[s].append(coef)
-                                self.Ncuts += 1
-                                FindCut = True
-                        lpiold = lpi.x
+                                self.Ncuts += 1                                                                     # record the cut number
+                                FindCut = True                                                                      # continue the outest iteration
+                        lpiold = lpi.x              
                 tScen = time.time() - tScen
                 if tScen > MaxTime:
                     MaxTime = tScen
